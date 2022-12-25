@@ -3,8 +3,9 @@ from bs4 import BeautifulSoup
 
 class Scrape():
     def run(self):
-        url = "http://yankee.org/tournaments/cr-c-12-22-2019"
-        page = requests.get(url)
+        hostname = "http://yankee.org"
+        tournament_url = f"{hostname}/tournaments/cr-c-12-22-2019"
+        page = requests.get(tournament_url)
         soup = BeautifulSoup(page.content, "html.parser")
 
         tournament_div = soup.find("div", class_="tourneyName") 
@@ -43,6 +44,38 @@ class Scrape():
                     #print("x")
                     #print(player)
 
+        results_url = None
+        # Find the results page, if it exists 
+        for a in soup.find_all('a', href=True):
+            if a.text.strip() == 'READ THE TOURNAMENT RECAP':
+                results_url_relative = a['href']
+                results_url = f"{hostname}{results_url_relative}"
+                print(f"Found it!: {results_url}")
+        if results_url != None:
+            self.get_results(results_url)
+
+    def get_results(self, results_url):
+        page = requests.get(results_url)
+        soup = BeautifulSoup(page.content, "html.parser")
+
+        results_summary_div = soup.find("div", class_="summary") 
+        p_tags = results_summary_div.find_all("p")
+        pool_indexes = {} 
+        current_index = 0
+        for p_tag in p_tags:
+            if "defeated" in p_tag.text:
+                # Should use a regex here
+                colon_index = p_tag.text.index(":")
+                defeated_index = p_tag.text.index("defeated")
+                winning_team = p_tag.text[colon_index:defeated_index].strip()
+                losing_team = p_tag.text[defeated_index + len("defeated"):].strip()
+                print(f"Winning Team: {winning_team} Losing Team {losing_team}")
+
+            if "Pool " in p_tag.text:
+                pool_indexes[p_tag.text] = current_index
+            print(f"P tag {p_tag}")
+            current_index = current_index + 1
+        print(f"Pool indices {pool_indexes}")
 
 if __name__ == '__main__':
     Scrape().run()
