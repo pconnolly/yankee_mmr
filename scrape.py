@@ -60,7 +60,8 @@ class Scrape():
 
         results_summary_div = soup.find("div", class_="summary") 
         p_tags = results_summary_div.find_all("p")
-        pool_indexes = {} 
+        pool_dict = {} 
+        individual_match_results = {}
         current_index = 0
         for p_tag in p_tags:
             if "defeated" in p_tag.text:
@@ -69,13 +70,57 @@ class Scrape():
                 defeated_index = p_tag.text.index("defeated")
                 winning_team = p_tag.text[colon_index:defeated_index].strip()
                 losing_team = p_tag.text[defeated_index + len("defeated"):].strip()
+                label = p_tag.text[:colon_index]
+                individual_match_results[label] = (winning_team, losing_team)
                 print(f"Winning Team: {winning_team} Losing Team {losing_team}")
 
             if "Pool " in p_tag.text:
-                pool_indexes[p_tag.text] = current_index
+                pool_dict[p_tag.text] = current_index
             print(f"P tag {p_tag}")
             current_index = current_index + 1
-        print(f"Pool indices {pool_indexes}")
+        print(f"Pool indices {pool_dict}")
+        num_pools = len(pool_dict)
+        previous_item = None
+        pool_dict_with_teams = {}
+        for pool_item in pool_dict.items():
+            (key, value) = pool_item
+            if previous_item is not None:
+                (prev_key, prev_value) = previous_item
+                print(f"previous_item: {previous_item}")
+                print(f"previous_item_key: {key}")
+                print(f"previous_item_value: {value}")
+                start_index = prev_value + 1
+                end_index = value
+                pool_name = prev_key
+                print(f"{pool_name} start Index: {start_index} End Index: {end_index}")
+
+                pool_dict_with_teams[pool_name] = p_tags[start_index:end_index]
+            previous_item = pool_item
+
+        (prev_key, prev_value) = previous_item
+        start_index = prev_value + 1
+        end_index = len(p_tags)
+        pool_name = prev_key
+        pool_dict_with_teams[pool_name] = p_tags[start_index:end_index]
+        print(f"{pool_name} start Index: {start_index} End Index: {end_index}")
+        print(pool_dict_with_teams)
+       
+        pool_results = {}
+        for pool in pool_dict_with_teams.items():
+            pool_records = {}
+            (pool_name, team_p_tags) = pool
+            for team_p_tag in team_p_tags:
+                team_text = team_p_tag.text 
+                first_space_index = team_text.find(" ") 
+                team_record = team_text[:first_space_index].strip()
+                team_name = team_text[first_space_index:].strip()
+                print(f"Team {team_name} had record {team_record}")
+                pool_records[team_name] = team_record
+            pool_results[pool_name] = pool_records
+
+        print(f"Individual match results {individual_match_results}")
+        print(f"Pools {pool_results}")
+        return (individual_match_results, pool_results)
 
 if __name__ == '__main__':
     Scrape().run()
