@@ -1,17 +1,35 @@
 import requests
 from bs4 import BeautifulSoup
+import csv
+import re
+import sqlite3
 
 class Scrape():
+
     def run(self):
-        hostname = "http://yankee.org"
-        tournament_url = f"{hostname}/tournaments/cr-c-12-22-2019"
+        self.hostname = "http://yankee.org"
+        tournament_url = f"{self.hostname}/tournaments/cr-c-12-22-2019"
+        self.write_tournament(tournament_url)
+
+    def run_sql(self, sql):
+        print(f"Running sql {sql}")
+        connection_obj = sqlite3.connect('yankee_mmr.db')
+        cursor_obj = connection_obj.cursor()
+        cursor_obj.execute(sql)
+        connection_obj.close()
+
+    def write_tournament(self, tournament_url):
         page = requests.get(tournament_url)
         soup = BeautifulSoup(page.content, "html.parser")
 
         tournament_div = soup.find("div", class_="tourneyName") 
-        tournament = tournament_div.find("h1").find("span").text.strip()
-        print(f"Tournament: {tournament}")
-
+        tournament_string = tournament_div.find("h1").find("span").text.strip()
+        tournament_re = re.search(r"(.*)\s(.*)\s(.*)", tournament_string)
+        tournament_format = tournament_re.group(1)
+        tournament_level = tournament_re.group(2)
+        tournament_date = tournament_re.group(3)
+        print(f"Tournament format: {tournament_format} level: {tournament_level} date: {tournament_date}")
+         
 
         confirmed_teams = soup.find("span", string="CONFIRMED TEAMS").parent.parent.parent
         #print(f"confirmed_teams {confirmed_teams}")
@@ -49,7 +67,7 @@ class Scrape():
         for a in soup.find_all('a', href=True):
             if a.text.strip() == 'READ THE TOURNAMENT RECAP':
                 results_url_relative = a['href']
-                results_url = f"{hostname}{results_url_relative}"
+                results_url = f"{self.hostname}{results_url_relative}"
                 print(f"Found it!: {results_url}")
         if results_url != None:
             self.get_results(results_url)
