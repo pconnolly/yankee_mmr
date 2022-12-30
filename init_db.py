@@ -21,12 +21,12 @@ class InitDB():
         drop_tournament_table = """DROP TABLE IF EXISTS tournaments;"""
         self.run_sql(drop_tournament_table)
         create_tournament_table = \
-"""CREATE TABLE tournaments (
-  tournament_id   INTEGER PRIMARY KEY NOT NULL, 
-  format          VARCHAR(10) NOT NULL,
-  level           VARCHAR(10) NOT NULL,
-  tournament_date CHAR(10)    NOT NULL
- ); """
+"""create table tournaments(
+  tournament_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+  tournament_format VARCHAR(10) NOT NULL, 
+  tournament_level VARCHAR(10) NOT NULL, 
+  tournament_date CHAR(10) NOT NULL
+);"""
 
         self.run_sql(create_tournament_table)
 
@@ -35,7 +35,7 @@ class InitDB():
         self.run_sql(drop_teams_table)
         create_teams_table = \
 """CREATE TABLE teams (
-  team_id INTEGER PRIMARY KEY NOT NULL, 
+  team_id INTEGER PRIMARY KEY AUTOINCREMENT, 
   tournament_id INTEGER NOT NULL, 
   team_name VARCHAR(255) NOT NULL, 
   team_rating VARCHAR(10), 
@@ -48,7 +48,7 @@ class InitDB():
         self.run_sql(drop_players_table)
         create_players_table = \
 """CREATE TABLE players (
-  player_id INTEGER PRIMARY KEY NOT NULL, 
+  player_id INTEGER PRIMARY KEY AUTOINCREMENT, 
   team_id INTEGER NOT NULL, 
   player_name VARCHAR(255) NOT NULL, 
   player_rating VARCHAR(10), 
@@ -64,11 +64,12 @@ class InitDB():
         self.run_sql(drop_match_results_table)
         create_match_results_table = \
 """CREATE TABLE match_results (
-  winning_team_id INTEGER NOT NULL, 
-  losing_team_id INTEGER NOT NULL,
+  match_results_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tournament_id INTEGER NOT NULL,
+  winning_team_name VARCHAR(255) NOT NULL, 
+  losing_team_name VARCHAR(255) NOT NULL,
   match_description VARCHAR(255),
-  FOREIGN KEY (winning_team_id) REFERENCES teams(team_id),
-  FOREIGN KEY (losing_team_id)  REFERENCES teams(team_id)
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
 );"""
         self.run_sql(create_match_results_table)
 
@@ -77,10 +78,13 @@ class InitDB():
         self.run_sql(drop_pool_results_table)
         create_pool_results_table = \
 """CREATE TABLE pool_results (
-  team_id INTEGER NOT NULL, 
+  pool_results_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+  tournament_id INTEGER NOT NULL,
+  pool_name VARCHAR(255) NOT NULL,
+  team_name VARCHAR(255) NOT NULL,
   number_wins INTEGER NOT NULL,
   number_losses INTEGER NOT NULL,
-  FOREIGN KEY (team_id)  REFERENCES teams(team_id)
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
 );"""
         self.run_sql(create_pool_results_table)
 
