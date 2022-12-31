@@ -67,9 +67,13 @@ class InitDB():
   match_results_id INTEGER PRIMARY KEY AUTOINCREMENT,
   tournament_id INTEGER NOT NULL,
   winning_team_name VARCHAR(255) NOT NULL, 
+  winning_team_id  INTEGER,
   losing_team_name VARCHAR(255) NOT NULL,
+  losing_team_id  INTEGER,
   match_description VARCHAR(255),
-  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),
+  FOREIGN KEY (winning_team_id) REFERENCES teams(team_id),
+  FOREIGN KEY (losing_team_id) REFERENCES teams(team_id)
 );"""
         self.run_sql(create_match_results_table)
 
@@ -82,9 +86,11 @@ class InitDB():
   tournament_id INTEGER NOT NULL,
   pool_name VARCHAR(255) NOT NULL,
   team_name VARCHAR(255) NOT NULL,
+  team_id  INTEGER,
   number_wins INTEGER NOT NULL,
   number_losses INTEGER NOT NULL,
-  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),
+  FOREIGN KEY (team_id) REFERENCES teams(team_id)
 );"""
         self.run_sql(create_pool_results_table)
 

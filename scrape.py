@@ -6,21 +6,6 @@ import sqlite3
 
 class Scrape():
 
-    def run(self):
-        self.hostname = "http://yankee.org"
-        tournament_url = f"{self.hostname}/tournaments/cr-c-12-22-2019"
-        self.connection_obj = sqlite3.connect('yankee_mmr.db')
-        try:  
-            self.add_tournament_to_db(tournament_url)
-            self.connection_obj.commit()
-        finally: 
-            self.connection_obj.close()
-
-    def run_sql(self, sql):
-        print(f"Running sql {sql}")
-        cursor_obj = self.connection_obj.cursor()
-        return cursor_obj.execute(sql)
-
     insert_tournament_sql = \
 """INSERT INTO tournaments(
   tournament_format,
@@ -84,6 +69,39 @@ class Scrape():
   {number_wins},
   {number_losses}
 );"""
+
+    def run(self):
+        self.hostname = "http://yankee.org"
+
+        tournament_results_url = f"{self.hostname}/tournaments/results"
+        tournaments = self.add_tournaments_to_db(tournament_results_url)
+
+    def run_sql(self, sql):
+        print(f"Running sql {sql}")
+        cursor_obj = self.connection_obj.cursor()
+        return cursor_obj.execute(sql)
+
+    def add_tournaments_to_db(self, tournament_results_url):
+        page = requests.get(tournament_results_url)
+        soup = BeautifulSoup(page.content, "html.parser")
+        tournament_list = soup.find("table", class_="tournamentList").find("tbody")
+        tournament_trs = tournament_list.find_all("tr") 
+        i = 0
+        for tournament_tr in tournament_trs:
+            if i > 4: 
+                exit()
+            tournament_relative_url   = tournament_tr.attrs['data-url']
+            tournament_url = f"{self.hostname}{tournament_relative_url}"
+            tournament_title = tournament_tr.attrs['title']
+            print(f"Tournament {tournament_title} at url {tournament_url}")
+            self.connection_obj = sqlite3.connect('yankee_mmr.db')
+            try:  
+                self.add_tournament_to_db(tournament_url)
+                self.connection_obj.commit()
+            finally: 
+                self.connection_obj.close()
+            i = i + 1
+
 
     def add_tournament_to_db(self, tournament_url):
         page = requests.get(tournament_url)
