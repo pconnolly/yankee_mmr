@@ -43,32 +43,15 @@ class Scrape():
   :player_gender
 );"""
 
-    insert_match_results_sql = \
-"""INSERT INTO match_results(
+    insert_result_text_sql = \
+"""INSERT INTO result_text(
   tournament_id,
-  winning_team_name,
-  losing_team_name,
-  match_description
+  row_nbr,
+  result_text
 ) VALUES (
   :tournament_id,
-  :winning_team_name,
-  :losing_team_name,
-  :match_description
-);"""
-
-    insert_pool_results_sql = \
-"""INSERT INTO pool_results(
-  tournament_id,
-  team_name,
-  pool_name,
-  number_wins,
-  number_losses
-) VALUES (
-  :tournament_id,
-  :pool_name,
-  :team_name,
-  :number_wins,
-  :number_losses
+  :row_nbr,
+  :result_text
 );"""
 
     def run(self):
@@ -88,17 +71,18 @@ class Scrape():
         tournament_list = soup.find("table", class_="tournamentList").find("tbody")
         tournament_trs = tournament_list.find_all("tr") 
         i = 0
+        num_tournaments = len(tournament_trs)
         for tournament_tr in tournament_trs:
             if i > 20: 
                 exit()
             tournament_relative_url   = tournament_tr.attrs['data-url']
             tournament_url = f"{self.hostname}{tournament_relative_url}"
             tournament_title = tournament_tr.attrs['title']
-            print(f"Tournament {tournament_title} at url {tournament_url}")
             self.connection_obj = sqlite3.connect('yankee_mmr.db')
             try:  
                 self.add_tournament_to_db(tournament_url)
                 self.connection_obj.commit()
+                print(f"Tournament {i} of {num_tournaments} {tournament_title} added")
             finally: 
                 self.connection_obj.close()
             i = i + 1
@@ -133,7 +117,7 @@ class Scrape():
             date_index = team_name.find("-")
             #print(f"date_index: {date_index}")
             team_name_clean = team_name[:date_index].strip()
-            print(f"Team: {team_name_clean}")
+            #print(f"Team: {team_name_clean}")
             params = {"tournament_id":tournament_id, "team_name": team_name_clean}
             self.run_sql(self.insert_teams_sql, params)
             team_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
@@ -174,25 +158,9 @@ class Scrape():
                 results_url = f"{self.hostname}{results_url_relative}"
                 #print(f"Found it!: {results_url}")
         if results_url != None:
-            (individual_match_results, pool_results) = self.get_results(results_url)
-            for match_description, (winning_team_name, losing_team_name) in individual_match_results.items():
-                print(f"Match desc {match_description} winning team {winning_team_name} losing {losing_team_name}") 
-                params = {"tournament_id": tournament_id, "winning_team_name": winning_team_name, "losing_team_name": losing_team_name, "match_description": match_description}
-                self.run_sql(self.insert_match_results_sql, params)
-                match_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-                print(f"Inserted match_results_id {match_results_id}")
-                #TODO Verify the rowcount is 1 or the insert didn't work
+            self.write_result_text(tournament_id, results_url)
 
-            for (pool_name, team_results_dict) in pool_results.items():
-                for (team_name, team_record) in team_results_dict.items():
-                    number_wins = team_record.split("-")[0]
-                    number_losses = team_record.split("-")[1]
-                    params = {"tournament_id": tournament_id, "pool_name": pool_name, "team_name": team_name, "number_wins": number_wins, "number_losses": number_losses}
-                    self.run_sql(self.insert_pool_results_sql, params)
-                    pool_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-                    #print(f"Inserted pool_results_id {match_results_id}")
-
-    def get_results(self, results_url):
+    def write_result_text(self, tournament_id, results_url):
         page = requests.get(results_url)
         soup = BeautifulSoup(page.content, "html.parser")
 
@@ -202,74 +170,10 @@ class Scrape():
         individual_match_results = {}
         current_index = 0
         for p_tag in p_tags:
-            print(f"Working with tag {p_tag.text}")
-            defeat_string = None
-            if "defeated" in p_tag.text:
-                defeat_string = "defeated"
-            elif "d." in p_tag.text:
-                defeat_string = "d."
-               
-            if defeat_string is not None:
-                # Should use a regex here
-                colon_index = p_tag.text.index(":")
-                defeated_index = p_tag.text.index(defeat_string)
-                winning_team = p_tag.text[colon_index + 1:defeated_index].strip()
-                losing_team = p_tag.text[defeated_index + len("defeated"):].strip()
-                label = p_tag.text[:colon_index]
-                individual_match_results[label] = (winning_team, losing_team)
-                print(f"Winning Team: {winning_team} Losing Team {losing_team}")
-
-            if "Pool " in p_tag.text:
-                pool_dict[p_tag.text.strip(":")] = current_index
-            print(f"P tag {p_tag}")
+            params = {"tournament_id": tournament_id, "row_nbr": current_index, "result_text": p_tag.text}
+            self.run_sql(self.insert_result_text_sql, params)
+            result_text_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
             current_index = current_index + 1
-        #print(f"Pool indices {pool_dict}")
-        num_pools = len(pool_dict)
-        previous_item = None
-        pool_dict_with_teams = {}
-        for pool_item in pool_dict.items():
-            (key, value) = pool_item
-            if previous_item is not None:
-                (prev_key, prev_value) = previous_item
-                #print(f"previous_item: {previous_item}")
-                #print(f"previous_item_key: {key}")
-                #print(f"previous_item_value: {value}")
-                start_index = prev_value + 1
-                end_index = value
-                pool_name = prev_key
-                #print(f"{pool_name} start Index: {start_index} End Index: {end_index}")
-
-                pool_dict_with_teams[pool_name] = p_tags[start_index:end_index]
-            previous_item = pool_item
-
-        (prev_key, prev_value) = previous_item
-        start_index = prev_value + 1
-        end_index = len(p_tags)
-        pool_name = prev_key
-        pool_dict_with_teams[pool_name] = p_tags[start_index:end_index]
-        #print(f"{pool_name} start Index: {start_index} End Index: {end_index}")
-        print(pool_dict_with_teams)
-       
-        pool_results = {}
-        for pool in pool_dict_with_teams.items():
-            pool_records = {}
-            (pool_name, team_p_tags) = pool
-            print(f"Pool name {pool_name} with tags {team_p_tags}")
-            for team_p_tag in team_p_tags:
-                team_text = team_p_tag.text 
-
-                matches = re.match("([0-9]*)?\s(.*)\s([0-9]+)-([0-9]+)", team_text)
-                print(f"Matches: {matches} in {team_text}")
-                first_space_index = team_text.find(" ") 
-                team_record = team_text[:first_space_index].strip()
-                team_name = team_text[first_space_index:].strip()
-                print(f"Team {team_name} had record {team_record}")
-                pool_records[team_name] = team_record
-            pool_results[pool_name] = pool_records
-
-        print(f"Individual match results {individual_match_results}")
-        print(f"Pools {pool_results}")
-        return (individual_match_results, pool_results)
 
 if __name__ == '__main__':
     Scrape().run()

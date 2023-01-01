@@ -59,6 +59,18 @@ class InitDB():
 );"""
         self.run_sql(create_players_table)
 
+        ##### Result Text Table #####
+        drop_result_text_table = """DROP TABLE IF EXISTS result_text;"""
+        self.run_sql(drop_result_text_table)
+        create_result_text_table = \
+"""CREATE TABLE result_text (
+  tournament_id INTEGER NOT NULL, 
+  row_nbr INTEGER NOT NULL, 
+  result_text VARCHAR(1000), 
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
+);"""
+        self.run_sql(create_result_text_table)
+
         ##### Match Results Table #####
         drop_match_results_table = """DROP TABLE IF EXISTS match_results;"""
         self.run_sql(drop_match_results_table)
