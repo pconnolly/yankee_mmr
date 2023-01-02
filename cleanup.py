@@ -89,6 +89,41 @@ INSERT INTO pool_results(
 );
 """
 
+    get_tournament_match_results_sql = \
+"""
+WITH defeat_text AS (
+  SELECT 'd.' defeat_text 
+  UNION ALL 
+  SELECT 'def' 
+  UNION ALL 
+  SELECT 'defeated') 
+SELECT rt.tournament_id,
+       rt.result_text 
+  FROM result_text rt 
+  JOIN defeat_text dt 
+    ON rt.result_text LIKE '% ' || dt.defeat_text || ' %' 
+ WHERE tournament_id = :tournament_id
+;"""
+
+    insert_match_results_sql = \
+"""
+INSERT INTO match_results(
+  tournament_id,
+  winning_team_name,
+  winning_team_id,
+  losing_team_name,
+  losing_team_id,
+  match_description
+) VALUES (
+  :tournament_id,
+  :winning_team_name,
+  :winning_team_id,
+  :losing_team_name,
+  :losing_team_id,
+  :match_description
+);
+"""
+
     def run_sql(self, sql, params = {}):
         #print(f"Running sql {sql}")
         cursor_obj = self.connection_obj.cursor()
@@ -102,20 +137,48 @@ INSERT INTO pool_results(
             num_tournaments = len(tournaments)
             i = 0 
             for tournament in tournaments:
+                (tournament_id, tournament_format, tournament_level, tournament_date) = tournament
+                print(f"Cleaning up results for {tournament_id}: {tournament_format} {tournament_level} {tournament_date}")
                 self.cleanup_pool_results(tournament)
+                self.cleanup_match_results(tournament)
                 print(f"Completed {i+1} of {num_tournaments} ({((i+1) / num_tournaments) * 100}%)")
                 i = i + 1
             self.connection_obj.commit()
         finally:
             self.connection_obj.close()
 
+    def cleanup_match_results(self, tournament):
+        (tournament_id, tournament_format, tournament_level, tournament_date) = tournament
+        params = {"tournament_id": tournament_id}
+        match_recaps = self.run_sql(self.get_tournament_match_results_sql, params).fetchall()
+        for match_recap in match_recaps:
+            (tournament_id, recap_text) = match_recap
+            #match_recap_matches = re.search(r"(Quarter:|Quarterfinal:|Semi:|Semi-finals:|Semi-Finals:|Finals:)?\s?(.*)\s(d\.|def|def\.|defeated)\s(.s*)\s([0-9]+)-([0-9]+)", recap_text)
+            #match_recap_matches = re.search(r"(Quarter:|Quarterfinal:|Semi:|Semi-finals:|Semi-Finals:|Finals:)?\s?(.*)(d.)(.*)\s(([0-9]+)-([0-9]+)\s?,?)*", recap_text)
+            match_recap_matches = re.search(r"(Quarter.*:|Semi.*:|Finals\s*:)?\s?(.*)\s(d\.|def|defeated)\s(.*)", recap_text)
+            if match_recap_matches is not None:
+                match_name = match_recap_matches.group(1).strip(":") if match_recap_matches.group(1) is not None else None
+                winning_team_name = match_recap_matches.group(2) 
+                losing_team_name_with_record = match_recap_matches.group(4)
+                # I couldn't get the regex right, so we reverse the string to strip off the trailing record and then reverse it again
+                losing_team_name = re.search(r"(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(.*)", losing_team_name_with_record[::-1]).group(10)[::-1].strip()
+                winning_team_id = self.find_team_id(tournament_id, winning_team_name)
+                losing_team_id = self.find_team_id(tournament_id, losing_team_name)
+                
+                params = {"tournament_id": tournament_id, "winning_team_name": winning_team_name, "winning_team_id": winning_team_id, "losing_team_name": losing_team_name, "losing_team_id": losing_team_id, "match_description": match_name}
+                self.run_sql(self.insert_match_results_sql, params)
+                match_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
+
+                
+                #print(f"Recap text {recap_text}")
+                #print(f"Match Name: {match_name} Winning Team: {winning_team_id} {winning_team_name} Losing Team: {losing_team_id} {losing_team_name}")
+            else:
+                print(f"Unabled to determine results for match {recap_text}")
 
     def cleanup_pool_results(self, tournament):
         (tournament_id, tournament_format, tournament_level, tournament_date) = tournament
-        print(f"Cleaning up results for {tournament_id}: {tournament_format} {tournament_level} {tournament_date}")
         params = {"tournament_id": tournament_id}
 
-        team_name_results = self.run_sql(self.get_tournament_teams_sql, params).fetchall()
         team_recaps = self.run_sql(self.get_tournament_pool_results_sql, params).fetchall()
         for team_recap in team_recaps:
             team_id = None
@@ -136,22 +199,7 @@ INSERT INTO pool_results(
                     number_wins = record_first_matches.group(1)
                     number_losses = record_first_matches.group(2)
 
-            #print(f"Result text {recap_text}: {record_team_name}")
-            #print(f"team {team_result}")
-            for team_name_result in team_name_results:
-                (potential_team_id, potential_team_name, potential_alias_name) = team_name_result
-                #print(f"Testing team name {potential_team_name} against {team_result}")
-                if re.search(record_team_name, potential_team_name, re.IGNORECASE):
-                    team_id = potential_team_id
-                    team_name = potential_team_name
-                    team_name_results.remove(team_name_result)
-                    break
-                elif potential_alias_name is not None and re.search(potential_alias_name, recap_text, re.IGNORECASE):
-                    team_id = potential_team_id
-                    team_name = potential_team_name
-                    team_name_results.remove(team_name_result)
-                    break
-
+            team_id = self.find_team_id(tournament_id, record_team_name)
             if team_id is not None:
             #    print(f"Found {team_name} in {team_result}")
                 #print(f"Team {team_name} had record {number_wins}-{number_losses}") 
@@ -165,6 +213,22 @@ INSERT INTO pool_results(
             #print(f"{tournament_format} {tournament_level} {tournament_date}")
             #print(f"Remaining rosters with no results {team_name_results}")
             #print(f"Teams with records {team_recaps}")
+
+    def find_team_id(self, tournament_id, record_team_name):
+        #print(f"Result text {recap_text}: {record_team_name}")
+        #print(f"team {team_result}")
+        params = {"tournament_id": tournament_id}
+        team_name_results = self.run_sql(self.get_tournament_teams_sql, params).fetchall()
+        for team_name_result in team_name_results:
+            (potential_team_id, potential_team_name, potential_alias_name) = team_name_result
+            #print(f"Testing team name {potential_team_name} against {team_result}")
+            if re.search(record_team_name, potential_team_name, re.IGNORECASE):
+                return potential_team_id
+            #elif potential_alias_name is not None and re.search(record_team_name, potential_alias_name, re.IGNORECASE):
+            #    team_id = potential_team_id
+            #    team_name = potential_team_name
+            #    team_name_results.remove(team_name_result)
+            #    break
 
 if __name__ == '__main__':
     Cleanup().run()
