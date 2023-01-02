@@ -43,6 +43,7 @@ class InitDB():
         self.run_sql(create_teams_table)
 
         ##### Team Aliases Table - For when the results don't match any roster #####
+        ##### Not used yet #####
         drop_team_aliases_table = """DROP TABLE IF EXISTS team_aliases;"""
         self.run_sql(drop_team_aliases_table)
         create_team_aliases_table = \

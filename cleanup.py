@@ -8,11 +8,8 @@ class Cleanup():
     get_tournament_teams_sql = \
 """
 SELECT t.team_id,
-       t.team_name,
-       ta.alias_name
+       t.team_name
   FROM teams t
-  LEFT JOIN team_aliases ta
-    ON t.team_name = ta.team_name
  WHERE t.tournament_id = :tournament_id
 """
 
@@ -220,15 +217,10 @@ INSERT INTO match_results(
         params = {"tournament_id": tournament_id}
         team_name_results = self.run_sql(self.get_tournament_teams_sql, params).fetchall()
         for team_name_result in team_name_results:
-            (potential_team_id, potential_team_name, potential_alias_name) = team_name_result
+            (potential_team_id, potential_team_name) = team_name_result
             #print(f"Testing team name {potential_team_name} against {team_result}")
             if re.search(record_team_name, potential_team_name, re.IGNORECASE):
                 return potential_team_id
-            #elif potential_alias_name is not None and re.search(record_team_name, potential_alias_name, re.IGNORECASE):
-            #    team_id = potential_team_id
-            #    team_name = potential_team_name
-            #    team_name_results.remove(team_name_result)
-            #    break
 
 if __name__ == '__main__':
     Cleanup().run()

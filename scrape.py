@@ -91,8 +91,6 @@ class Scrape():
         tournament_list = [] 
         #TODO need to load tournaments in chronological order to get the most recent player ratings
         for tournament_tr in tournament_trs:
-            if i > 20: 
-                break
             tournament_relative_url   = tournament_tr.attrs['data-url']
             tournament_url = f"{self.hostname}{tournament_relative_url}"
             tournament_title = tournament_tr.attrs['title']
