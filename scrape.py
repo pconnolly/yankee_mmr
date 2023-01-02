@@ -100,7 +100,9 @@ class Scrape():
             tournament_level = tournament_re.group(2)
             tournament_date = tournament_re.group(3)
             (tournament_month, tournament_day, tournament_year) = tournament_date.split("/")
-            tournament_date_formatted = f"{tournament_year.rjust(4, '0')}-{tournament_month.rjust(2, '0')}-{tournament_day.rjust(2, '0')}"
+            if len(tournament_year) == 2:
+                tournament_year = "20" + tournament_year
+            tournament_date_formatted = f"{tournament_year}-{tournament_month.rjust(2, '0')}-{tournament_day.rjust(2, '0')}"
 
             tournament_list.append((tournament_date_formatted, tournament_format, tournament_level, tournament_url))            
             i = i + 1
@@ -112,11 +114,15 @@ class Scrape():
         j = 0 
         for tournament in tournament_list:
             (tournament_date_formatted, tournament_format, tournament_level, tournament_url) = tournament
+            print(f"Attempting to add Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level}")
             self.connection_obj = sqlite3.connect('yankee_mmr.db')
             try:  
                 self.add_tournament_to_db(tournament_date_formatted, tournament_format, tournament_level, tournament_url)
                 self.connection_obj.commit()
                 print(f"Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level} added")
+            except Exception as e:
+                print(f"ERROR: Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level} could not be added {e}")
+                 
             finally: 
                 self.connection_obj.close()
             j = j + 1

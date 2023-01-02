@@ -155,7 +155,7 @@ INSERT INTO match_results(
             match_recap_matches = re.search(r"(Quarter.*:|Semi.*:|Finals\s*:)?\s?(.*)\s(d\.|def|defeated)\s(.*)", recap_text)
             if match_recap_matches is not None:
                 match_name = match_recap_matches.group(1).strip(":") if match_recap_matches.group(1) is not None else None
-                winning_team_name = match_recap_matches.group(2) 
+                winning_team_name = match_recap_matches.group(2).strip()
                 losing_team_name_with_record = match_recap_matches.group(4)
                 # I couldn't get the regex right, so we reverse the string to strip off the trailing record and then reverse it again
                 losing_team_name = re.search(r"(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(.*)", losing_team_name_with_record[::-1]).group(10)[::-1].strip()
