@@ -38,26 +38,47 @@ class InitDB():
   team_id INTEGER PRIMARY KEY AUTOINCREMENT, 
   tournament_id INTEGER NOT NULL, 
   team_name VARCHAR(255) NOT NULL, 
-  team_rating VARCHAR(10), 
   FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
 );"""
         self.run_sql(create_teams_table)
 
-        ##### Rosters Table #####
+        ##### Team Aliases Table - For when the results don't match any roster #####
+        drop_team_aliases_table = """DROP TABLE IF EXISTS team_aliases;"""
+        self.run_sql(drop_team_aliases_table)
+        create_team_aliases_table = \
+"""CREATE TABLE team_aliases (
+  tournament_id INTEGER NOT NULL,
+  team_name VARCHAR(255) NOT NULL, 
+  alias_name VARCHAR(255) NOT NULL,
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
+);"""
+        self.run_sql(create_team_aliases_table)
+
+        ##### Players Table #####
         drop_players_table = """DROP TABLE IF EXISTS players;"""
         self.run_sql(drop_players_table)
         create_players_table = \
 """CREATE TABLE players (
   player_id INTEGER PRIMARY KEY AUTOINCREMENT, 
-  team_id INTEGER NOT NULL, 
-  player_name VARCHAR(255) NOT NULL, 
-  player_rating VARCHAR(10), 
-  player_gender VARCHAR(10), 
-  verify_membership VARCHAR(10), 
-  rerate VARCHAR(10), 
-  FOREIGN KEY (team_id) REFERENCES teams(team_id)
+  player_name VARCHAR(255) NOT NULL UNIQUE, 
+  player_current_rating VARCHAR(10), 
+  player_gender VARCHAR(10)
 );"""
         self.run_sql(create_players_table)
+
+        ##### Rosters Table #####
+        drop_rosters_table = """DROP TABLE IF EXISTS rosters;"""
+        self.run_sql(drop_rosters_table)
+        create_rosters_table = \
+"""CREATE TABLE rosters (
+  roster_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+  team_id INTEGER NOT NULL, 
+  player_id INTEGER NOT NULL, 
+  FOREIGN KEY (team_id) REFERENCES teams(team_id),
+  FOREIGN KEY (player_id) REFERENCES players(player_id),
+  UNIQUE(team_id, player_id)
+);"""
+        self.run_sql(create_rosters_table)
 
         ##### Result Text Table #####
         drop_result_text_table = """DROP TABLE IF EXISTS result_text;"""
@@ -97,8 +118,7 @@ class InitDB():
   pool_results_id INTEGER PRIMARY KEY AUTOINCREMENT, 
   tournament_id INTEGER NOT NULL,
   pool_name VARCHAR(255) NOT NULL,
-  team_name VARCHAR(255) NOT NULL,
-  team_id  INTEGER,
+  team_id  INTEGER NOT NULL,
   number_wins INTEGER NOT NULL,
   number_losses INTEGER NOT NULL,
   FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),

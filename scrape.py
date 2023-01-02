@@ -30,17 +30,32 @@ class Scrape():
   :team_name
 );"""
 
+    find_player_sql = "SELECT player_id, player_current_rating FROM players WHERE player_name = :player_name"
+
     insert_players_sql = \
 """INSERT INTO players(
-  team_id,
   player_name,
-  player_rating,
+  player_current_rating,
   player_gender
 ) VALUES (
-  :team_id,
   :player_name,
   :player_rating,
   :player_gender
+);"""
+
+    update_player_rating_sql = \
+"""UPDATE players
+   SET player_current_rating = :player_rating
+ WHERE player_id = :player_id
+;"""
+
+    insert_rosters_sql = \
+"""INSERT INTO rosters(
+  team_id,
+  player_id
+) VALUES (
+  :team_id,
+  :player_id
 );"""
 
     insert_result_text_sql = \
@@ -68,39 +83,52 @@ class Scrape():
     def add_tournaments_to_db(self, tournament_results_url):
         page = requests.get(tournament_results_url)
         soup = BeautifulSoup(page.content, "html.parser")
-        tournament_list = soup.find("table", class_="tournamentList").find("tbody")
-        tournament_trs = tournament_list.find_all("tr") 
+        tournament_table_list = soup.find("table", class_="tournamentList").find("tbody")
+        tournament_trs = tournament_table_list.find_all("tr") 
         i = 0
         num_tournaments = len(tournament_trs)
+
+        tournament_list = [] 
+        #TODO need to load tournaments in chronological order to get the most recent player ratings
         for tournament_tr in tournament_trs:
             if i > 20: 
-                exit()
+                break
             tournament_relative_url   = tournament_tr.attrs['data-url']
             tournament_url = f"{self.hostname}{tournament_relative_url}"
             tournament_title = tournament_tr.attrs['title']
+        
+            tournament_re = re.search(r"(.*)\s(.*)\s(.*)", tournament_title)
+            tournament_format = tournament_re.group(1)
+            tournament_level = tournament_re.group(2)
+            tournament_date = tournament_re.group(3)
+            (tournament_month, tournament_day, tournament_year) = tournament_date.split("/")
+            tournament_date_formatted = f"{tournament_year.rjust(4, '0')}-{tournament_month.rjust(2, '0')}-{tournament_day.rjust(2, '0')}"
+
+            tournament_list.append((tournament_date_formatted, tournament_format, tournament_level, tournament_url))            
+            i = i + 1
+
+        #print(f"Tournament list {tournament_list}") 
+        tournament_list.sort(key=lambda y: y[0])
+        #print(f"Tournament list sorted {tournament_list}") 
+
+        j = 0 
+        for tournament in tournament_list:
+            (tournament_date_formatted, tournament_format, tournament_level, tournament_url) = tournament
             self.connection_obj = sqlite3.connect('yankee_mmr.db')
             try:  
-                self.add_tournament_to_db(tournament_url)
+                self.add_tournament_to_db(tournament_date_formatted, tournament_format, tournament_level, tournament_url)
                 self.connection_obj.commit()
-                print(f"Tournament {i} of {num_tournaments} {tournament_title} added")
+                print(f"Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level} added")
             finally: 
                 self.connection_obj.close()
-            i = i + 1
+            j = j + 1
             time.sleep(self.delay_between_page_requests)
 
 
-    def add_tournament_to_db(self, tournament_url):
+    def add_tournament_to_db(self, tournament_date_formatted, tournament_format, tournament_level, tournament_url):
         page = requests.get(tournament_url)
         soup = BeautifulSoup(page.content, "html.parser")
 
-        tournament_div = soup.find("div", class_="tourneyName") 
-        tournament_string = tournament_div.find("h1").find("span").text.strip()
-        tournament_re = re.search(r"(.*)\s(.*)\s(.*)", tournament_string)
-        tournament_format = tournament_re.group(1)
-        tournament_level = tournament_re.group(2)
-        tournament_date = tournament_re.group(3)
-        (tournament_month, tournament_day, tournament_year) = tournament_date.split("/")
-        tournament_date_formatted = f"{tournament_year}-{tournament_month}-{tournament_day}"
         #print(f"Tournament format: {tournament_format} level: {tournament_level} date: {tournament_date_formatted}")
         params = {"tournament_format": tournament_format, "tournament_level": tournament_level, "tournament_date": tournament_date_formatted}
         self.run_sql(self.insert_tournament_sql, params)
@@ -137,18 +165,33 @@ class Scrape():
                     player_rating = player_info[2].text.strip()
                     player_gender = player_info[3].text.strip()
 
-                    # Verify membership and rerate only reflect the current value, so they aren't valuable to store
-                    # For example if a player was re-rateable on Jan 1 tournament they will show as a "no" here 
-                    verify_membership = player_info[4].text.strip()
-                    rerate = player_info[5].text.strip()
+                    
                     #(player_id, player_name, player_rating, player_gender, verify_membership, rerate) = player_info
                     #print(f"Player ID {player_id} Player Name {player_name} Rating {player_rating} Gender {player_gender}")
                     #print("x")
                     #print(player)
-                    params = {"team_id": team_id, "player_name": player_name, "player_rating": player_rating, "player_gender": player_gender}
-                    self.run_sql(self.insert_players_sql, params)
-                    player_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-                    #print(f"Inserted player id {player_id}")
+
+                    # Upsert the player record
+                    params = {"player_name": player_name}
+                    find_player_results = self.run_sql(self.find_player_sql, params).fetchone()
+                    player_id = None
+                    if find_player_results is None:
+                        params = {"player_name": player_name, "player_rating": player_rating, "player_gender": player_gender}
+                        self.run_sql(self.insert_players_sql, params)
+                        player_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
+                        #print(f"Inserted new player id {player_id}")
+                    else:
+                        player_id = find_player_results[0]
+                        existing_rating = find_player_results[1]
+                        if existing_rating != player_rating:
+                            params = {"player_id": player_id, "player_rating": player_rating}
+                            self.run_sql(self.update_player_rating_sql, params)
+                            
+                        #print(f"Found existing player id {player_id}")
+                        
+                    params = {"team_id": team_id, "player_id": player_id}
+                    self.run_sql(self.insert_rosters_sql, params)
+                    roster_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
 
         results_url = None
         # Find the results page, if it exists 
