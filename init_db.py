@@ -25,7 +25,8 @@ class InitDB():
   tournament_id INTEGER PRIMARY KEY AUTOINCREMENT, 
   tournament_format VARCHAR(10) NOT NULL, 
   tournament_level VARCHAR(10) NOT NULL, 
-  tournament_date CHAR(10) NOT NULL
+  tournament_date CHAR(10) NOT NULL,
+  tournament_url VARCHAR(1000) NOT NULL
 );"""
 
         self.run_sql(create_tournament_table)
@@ -41,19 +42,6 @@ class InitDB():
   FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
 );"""
         self.run_sql(create_teams_table)
-
-        ##### Team Aliases Table - For when the results don't match any roster #####
-        ##### Not used yet #####
-        drop_team_aliases_table = """DROP TABLE IF EXISTS team_aliases;"""
-        self.run_sql(drop_team_aliases_table)
-        create_team_aliases_table = \
-"""CREATE TABLE team_aliases (
-  tournament_id INTEGER NOT NULL,
-  team_name VARCHAR(255) NOT NULL, 
-  alias_name VARCHAR(255) NOT NULL,
-  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id)
-);"""
-        self.run_sql(create_team_aliases_table)
 
         ##### Players Table #####
         drop_players_table = """DROP TABLE IF EXISTS players;"""

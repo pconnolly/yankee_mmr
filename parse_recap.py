@@ -1,9 +1,9 @@
 import re
 import sqlite3
 
-class Cleanup():
+class ParseRecap():
 
-    get_all_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments ORDER BY tournament_id"
+    get_all_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments WHERE tournament_id = 30 ORDER BY tournament_id"
 
     get_tournament_teams_sql = \
 """
@@ -182,19 +182,21 @@ INSERT INTO match_results(
             number_wins = None
             number_losses = None
             (tournament_id, pool_name, recap_text) = team_recap
+
+            #print(f"Pool {pool_name} text {recap_text}")
             record_last_matches = re.search(r"([0-9]+\.)?\s?(.*)\s([0-9]+)-([0-9]+)", recap_text)
             if record_last_matches is not None:
-                #print(f"results last: {recap_text}")
                 record_team_name = record_last_matches.group(2)
                 number_wins = record_last_matches.group(3)
                 number_losses = record_last_matches.group(4)
+                #print(f"results last: {recap_text} found team name {record_team_name} with {number_wins} wins and {number_losses} losses")
             else: 
                 record_first_matches = re.search(r"([0-9]+)-([0-9]+)?\s?(.*)", recap_text)
                 if record_first_matches is not None:
-                    #print(f"results first: {recap_text}")
                     record_team_name = record_first_matches.group(3)
                     number_wins = record_first_matches.group(1)
                     number_losses = record_first_matches.group(2)
+                    #print(f"results first: {recap_text} found team name {record_team_name} with {number_wins} wins and {number_losses} losses")
 
             team_id = self.find_team_id(tournament_id, record_team_name)
             if team_id is not None:
@@ -203,8 +205,6 @@ INSERT INTO match_results(
                 params = {"tournament_id": tournament_id, "pool_name": pool_name, "team_id": team_id, "number_wins": number_wins, "number_losses": number_losses}
                 self.run_sql(self.insert_pool_results_sql, params)
                 pool_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-            #else: 
-                #print(f"Could not find a roster for result {result_text} in {team_name_results}")
 
         #if len(team_name_results) > 0:
             #print(f"{tournament_format} {tournament_level} {tournament_date}")
@@ -218,9 +218,14 @@ INSERT INTO match_results(
         team_name_results = self.run_sql(self.get_tournament_teams_sql, params).fetchall()
         for team_name_result in team_name_results:
             (potential_team_id, potential_team_name) = team_name_result
-            #print(f"Testing team name {potential_team_name} against {team_result}")
-            if re.search(record_team_name, potential_team_name, re.IGNORECASE):
-                return potential_team_id
+            #print(f"Testing team name {potential_team_name} against {record_team_name}")
+            try:
+                if re.search(record_team_name, potential_team_name, re.IGNORECASE):
+                    return potential_team_id
+            except:
+                pass
+        #print(f"Could not find a roster for result {record_team_name} in {team_name_results}")
+
 
 if __name__ == '__main__':
-    Cleanup().run()
+    ParseRecap().run()

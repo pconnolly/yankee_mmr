@@ -14,11 +14,13 @@ class Scrape():
 """INSERT INTO tournaments(
   tournament_format,
   tournament_level,
-  tournament_date
+  tournament_date,
+  tournament_url
 ) VALUES (
   :tournament_format,
   :tournament_level,
-  :tournament_date
+  :tournament_date,
+  :tournament_url
 );"""
 
     insert_teams_sql = \
@@ -74,6 +76,7 @@ class Scrape():
 
         tournament_results_url = f"{self.hostname}/tournaments/results"
         tournaments = self.add_tournaments_to_db(tournament_results_url)
+
 
     def run_sql(self, sql, params = {}):
         #print(f"Running sql {sql}")
@@ -134,7 +137,7 @@ class Scrape():
         soup = BeautifulSoup(page.content, "html.parser")
 
         #print(f"Tournament format: {tournament_format} level: {tournament_level} date: {tournament_date_formatted}")
-        params = {"tournament_format": tournament_format, "tournament_level": tournament_level, "tournament_date": tournament_date_formatted}
+        params = {"tournament_format": tournament_format, "tournament_level": tournament_level, "tournament_date": tournament_date_formatted, "tournament_url": tournament_url}
         self.run_sql(self.insert_tournament_sql, params)
         tournament_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
         #print(f"Inserted tournament id {tournament_id}")
@@ -217,10 +220,12 @@ class Scrape():
         individual_match_results = {}
         current_index = 0
         for p_tag in p_tags:
-            params = {"tournament_id": tournament_id, "row_nbr": current_index, "result_text": p_tag.text}
-            self.run_sql(self.insert_result_text_sql, params)
-            result_text_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-            current_index = current_index + 1
+            lines = p_tag.text.split("\n")
+            for line in lines:
+                params = {"tournament_id": tournament_id, "row_nbr": current_index, "result_text": line}
+                self.run_sql(self.insert_result_text_sql, params)
+                result_text_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
+                current_index = current_index + 1
 
 if __name__ == '__main__':
     Scrape().run()
