@@ -3,7 +3,7 @@ import sqlite3
 
 class ParseRecap():
 
-    get_all_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments WHERE tournament_id = 30 ORDER BY tournament_id"
+    get_all_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments ORDER BY tournament_id"
 
     get_tournament_teams_sql = \
 """
@@ -32,7 +32,10 @@ SELECT tournament_id,
  WHERE (LENGTH(TRIM(result_text)) <= 1 
     OR UPPER(result_text) LIKE 'SEMI%'
     OR UPPER(result_text) LIKE 'QUARTER%'
-    OR UPPER(result_text) LIKE 'FINAL%')
+    OR UPPER(result_text) LIKE '%QUARTERFINALS%'
+    OR UPPER(result_text) LIKE 'QUATER%' --Typo on 2021-10-24 M C+
+    OR UPPER(result_text) LIKE '______%'
+    OR UPPER(result_text) LIKE '%FINAL%')
    AND tournament_id = :tournament_id
 ),
 pool_range AS (
@@ -46,7 +49,7 @@ pool_range_fixed AS (
 SELECT pr.tournament_id,
        pr.pool_name,
        pr.start_row_nbr,
-       CASE WHEN pr.end_row_nbr IS NULL THEN MIN(npr.row_nbr) - 1 ELSE MIN(pr.end_row_nbr) END AS end_row_nbr
+       CASE WHEN (pr.end_row_nbr IS NULL OR MIN(npr.row_nbr) < pr.end_row_nbr) THEN MIN(npr.row_nbr) - 1 ELSE MIN(pr.end_row_nbr) END AS end_row_nbr
   FROM pool_range pr
   LEFT OUTER JOIN non_pool_rows npr
     ON npr.tournament_id = pr.tournament_id
@@ -89,16 +92,16 @@ INSERT INTO pool_results(
     get_tournament_match_results_sql = \
 """
 WITH defeat_text AS (
-  SELECT 'd.' defeat_text 
+  SELECT 'D.' defeat_text 
   UNION ALL 
-  SELECT 'def' 
+  SELECT 'DEF' 
   UNION ALL 
-  SELECT 'defeated') 
+  SELECT 'DEFEATED') 
 SELECT rt.tournament_id,
        rt.result_text 
   FROM result_text rt 
   JOIN defeat_text dt 
-    ON rt.result_text LIKE '% ' || dt.defeat_text || ' %' 
+    ON UPPER(rt.result_text) LIKE '% ' || dt.defeat_text || ' %' 
  WHERE tournament_id = :tournament_id
 ;"""
 
@@ -152,7 +155,7 @@ INSERT INTO match_results(
             (tournament_id, recap_text) = match_recap
             #match_recap_matches = re.search(r"(Quarter:|Quarterfinal:|Semi:|Semi-finals:|Semi-Finals:|Finals:)?\s?(.*)\s(d\.|def|def\.|defeated)\s(.s*)\s([0-9]+)-([0-9]+)", recap_text)
             #match_recap_matches = re.search(r"(Quarter:|Quarterfinal:|Semi:|Semi-finals:|Semi-Finals:|Finals:)?\s?(.*)(d.)(.*)\s(([0-9]+)-([0-9]+)\s?,?)*", recap_text)
-            match_recap_matches = re.search(r"(Quarter.*:|Semi.*:|Finals\s*:)?\s?(.*)\s(d\.|def|defeated)\s(.*)", recap_text)
+            match_recap_matches = re.search(r"(Quarter.*:|Semi.*:|Finals\s*:)?\s?(.*)\s(D\.|d\.|def|Defeated|defeated|DEFEATED|DEF)\s(.*)", recap_text)
             if match_recap_matches is not None:
                 match_name = match_recap_matches.group(1).strip(":") if match_recap_matches.group(1) is not None else None
                 winning_team_name = match_recap_matches.group(2).strip()
@@ -179,6 +182,7 @@ INSERT INTO match_results(
         team_recaps = self.run_sql(self.get_tournament_pool_results_sql, params).fetchall()
         for team_recap in team_recaps:
             team_id = None
+            record_team_name = None
             number_wins = None
             number_losses = None
             (tournament_id, pool_name, recap_text) = team_recap
@@ -197,19 +201,16 @@ INSERT INTO match_results(
                     number_wins = record_first_matches.group(1)
                     number_losses = record_first_matches.group(2)
                     #print(f"results first: {recap_text} found team name {record_team_name} with {number_wins} wins and {number_losses} losses")
-
-            team_id = self.find_team_id(tournament_id, record_team_name)
-            if team_id is not None:
-            #    print(f"Found {team_name} in {team_result}")
-                #print(f"Team {team_name} had record {number_wins}-{number_losses}") 
-                params = {"tournament_id": tournament_id, "pool_name": pool_name, "team_id": team_id, "number_wins": number_wins, "number_losses": number_losses}
-                self.run_sql(self.insert_pool_results_sql, params)
-                pool_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
-
-        #if len(team_name_results) > 0:
-            #print(f"{tournament_format} {tournament_level} {tournament_date}")
-            #print(f"Remaining rosters with no results {team_name_results}")
-            #print(f"Teams with records {team_recaps}")
+            if record_team_name is not None:
+                team_id = self.find_team_id(tournament_id, record_team_name)
+                if team_id is not None:
+                #    print(f"Found {team_name} in {team_result}")
+                    #print(f"Team {team_name} had record {number_wins}-{number_losses}") 
+                    params = {"tournament_id": tournament_id, "pool_name": pool_name, "team_id": team_id, "number_wins": number_wins, "number_losses": number_losses}
+                    self.run_sql(self.insert_pool_results_sql, params)
+                    pool_results_id = self.run_sql("SELECT last_insert_rowid()").fetchone()[0]
+            else: 
+                print(f"Could not parse pool results for tournament {tournament_id} {tournament_format} {tournament_level} {tournament_date} {recap_text}")
 
     def find_team_id(self, tournament_id, record_team_name):
         #print(f"Result text {recap_text}: {record_team_name}")
