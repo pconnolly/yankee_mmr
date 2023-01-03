@@ -58,7 +58,9 @@ class Scrape():
 ) VALUES (
   :team_id,
   :player_id
-);"""
+) 
+ON CONFLICT DO NOTHING
+;"""
 
     insert_result_text_sql = \
 """INSERT INTO result_text(
@@ -122,7 +124,6 @@ class Scrape():
             try:  
                 self.add_tournament_to_db(tournament_date_formatted, tournament_format, tournament_level, tournament_url)
                 self.connection_obj.commit()
-                print(f"Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level} added")
             except Exception as e:
                 print(f"ERROR: Tournament {j} of {num_tournaments} {tournament_date_formatted} {tournament_format} {tournament_level} could not be added {e}")
                  
@@ -135,6 +136,14 @@ class Scrape():
     def add_tournament_to_db(self, tournament_date_formatted, tournament_format, tournament_level, tournament_url):
         page = requests.get(tournament_url)
         soup = BeautifulSoup(page.content, "html.parser")
+
+        status = soup.find("div", class_="status")
+        status_text = status.find("div", class_="text").text
+        #print(f"Tournament status: {status_text}")
+
+        if status_text == 'CANCELLED':
+            print(f"Tournament {tournament_date_formatted} {tournament_format} {tournament_level} CANCELLED - Skipping")
+            return 
 
         #print(f"Tournament format: {tournament_format} level: {tournament_level} date: {tournament_date_formatted}")
         params = {"tournament_format": tournament_format, "tournament_level": tournament_level, "tournament_date": tournament_date_formatted, "tournament_url": tournament_url}
@@ -209,6 +218,7 @@ class Scrape():
                 #print(f"Found it!: {results_url}")
         if results_url != None:
             self.write_result_text(tournament_id, results_url)
+        print(f"Tournament {tournament_date_formatted} {tournament_format} {tournament_level} added")
 
     def write_result_text(self, tournament_id, results_url):
         page = requests.get(results_url)
