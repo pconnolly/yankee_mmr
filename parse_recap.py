@@ -15,46 +15,39 @@ SELECT t.team_id,
 
     get_tournament_pool_results_sql = \
 """
-WITH 
+WITH
 pool_rows AS (
 SELECT tournament_id,
        result_text AS pool_name,
        row_nbr + 1 AS start_row_nbr
   FROM result_text
- WHERE UPPER(result_text) LIKE 'POOL %' 
-   AND UPPER(result_text) NOT LIKE 'POOL PLAY%'
-   AND tournament_id = :tournament_id 
+ WHERE UPPER(result_text) LIKE 'POOL %'
+   AND tournament_id = :tournament_id
 ),
 non_pool_rows AS (
 SELECT tournament_id,
        row_nbr
   FROM result_text
- WHERE (LENGTH(TRIM(result_text)) <= 1 
+ WHERE (LENGTH(TRIM(result_text)) <= 1
     OR UPPER(result_text) LIKE 'SEMI%'
     OR UPPER(result_text) LIKE 'QUARTER%'
     OR UPPER(result_text) LIKE '%QUARTERFINALS%'
     OR UPPER(result_text) LIKE 'QUATER%' --Typo on 2021-10-24 M C+
-    OR UPPER(result_text) LIKE '______%'
+    OR UPPER(result_text) LIKE '\_\_\_\_\_\_%'
+    OR UPPER(result_text) LIKE 'POOL %'
     OR UPPER(result_text) LIKE '%FINAL%')
    AND tournament_id = :tournament_id
 ),
 pool_range AS (
-SELECT tournament_id,
-       pool_name,
-       start_row_nbr,
-       LEAD(start_row_nbr - 2) OVER (PARTITION BY tournament_id ORDER BY pool_name) AS end_row_nbr
-  FROM pool_rows
-),
-pool_range_fixed AS (
 SELECT pr.tournament_id,
        pr.pool_name,
        pr.start_row_nbr,
-       CASE WHEN (pr.end_row_nbr IS NULL OR MIN(npr.row_nbr) < pr.end_row_nbr) THEN MIN(npr.row_nbr) - 1 ELSE MIN(pr.end_row_nbr) END AS end_row_nbr
-  FROM pool_range pr
+       COALESCE(MIN(npr.row_nbr) - 1, (SELECT MAX(row_nbr) FROM result_text rt WHERE pr.tournament_id = rt.tournament_id)) end_row_nbr
+  FROM pool_rows pr
   LEFT OUTER JOIN non_pool_rows npr
     ON npr.tournament_id = pr.tournament_id
    AND npr.row_nbr > pr.start_row_nbr
- GROUP BY 
+ GROUP BY
        pr.tournament_id,
        pr.pool_name,
        pr.start_row_nbr
@@ -63,11 +56,11 @@ SELECT rt.tournament_id,
        pr.pool_name,
        rt.result_text
   FROM result_text rt
-  JOIN pool_range_fixed pr
+  JOIN pool_range pr
     ON pr.tournament_id = rt.tournament_id
    AND rt.row_nbr >= pr.start_row_nbr
    AND (rt.row_nbr <= pr.end_row_nbr OR pr.end_row_nbr IS NULL)
-   AND LENGTH(TRIM(rt.result_text)) > 1 
+   AND LENGTH(TRIM(rt.result_text)) > 1
  WHERE rt.tournament_id = :tournament_id
 ;
 """
@@ -188,14 +181,14 @@ INSERT INTO match_results(
             (tournament_id, pool_name, recap_text) = team_recap
 
             #print(f"Pool {pool_name} text {recap_text}")
-            record_last_matches = re.search(r"([0-9]+\.)?\s?(.*)\s([0-9]+)-([0-9]+)", recap_text)
+            record_last_matches = re.search(r"([0-9]+\.)?\s?(.*)\s[-–]?\s?([0-9]+)\s?[-–]\s?([0-9]+)", recap_text)
             if record_last_matches is not None:
                 record_team_name = record_last_matches.group(2)
                 number_wins = record_last_matches.group(3)
                 number_losses = record_last_matches.group(4)
                 #print(f"results last: {recap_text} found team name {record_team_name} with {number_wins} wins and {number_losses} losses")
             else: 
-                record_first_matches = re.search(r"([0-9]+)-([0-9]+)?\s?(.*)", recap_text)
+                record_first_matches = re.search(r"([0-9]+)\s?[-–]\s?([0-9]+)?\s?(.*)", recap_text)
                 if record_first_matches is not None:
                     record_team_name = record_first_matches.group(3)
                     number_wins = record_first_matches.group(1)
