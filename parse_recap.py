@@ -3,6 +3,8 @@ import sqlite3
 
 class ParseRecap():
 
+    cleanup_re = "\(.*\)|'|!|’|\*"
+
     get_all_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments ORDER BY tournament_id"
 
     get_tournament_teams_sql = \
@@ -79,7 +81,8 @@ INSERT INTO pool_results(
   :team_id,
   :number_wins,
   :number_losses
-);
+)
+ON CONFLICT DO NOTHING;
 """
 
     get_tournament_match_results_sql = \
@@ -155,6 +158,10 @@ INSERT INTO match_results(
                 losing_team_name_with_record = match_recap_matches.group(4)
                 # I couldn't get the regex right, so we reverse the string to strip off the trailing record and then reverse it again
                 losing_team_name = re.search(r"(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(\s?,?([0-9]+)-([0-9]+))?(.*)", losing_team_name_with_record[::-1]).group(10)[::-1].strip()
+
+                winning_team_name = re.sub(self.cleanup_re, "", winning_team_name)
+                losing_team_name = re.sub(self.cleanup_re, "", losing_team_name)
+
                 winning_team_id = self.find_team_id(tournament_id, winning_team_name)
                 losing_team_id = self.find_team_id(tournament_id, losing_team_name)
                 
@@ -180,6 +187,11 @@ INSERT INTO match_results(
             number_losses = None
             (tournament_id, pool_name, recap_text) = team_recap
 
+            # Remove punctuation, anything in parens
+            #print(f"Before: {recap_text}")
+            recap_text = re.sub(self.cleanup_re, "", recap_text)
+            #print(f"After: {recap_text}")
+            
             #print(f"Pool {pool_name} text {recap_text}")
             record_last_matches = re.search(r"([0-9]+\.)?\s?(.*)\s[-–]?\s?([0-9]+)\s?[-–]\s?([0-9]+)", recap_text)
             if record_last_matches is not None:
@@ -194,7 +206,7 @@ INSERT INTO match_results(
                     number_wins = record_first_matches.group(1)
                     number_losses = record_first_matches.group(2)
                     #print(f"results first: {recap_text} found team name {record_team_name} with {number_wins} wins and {number_losses} losses")
-            if record_team_name is not None:
+            if record_team_name is not None and len(record_team_name) > 1 and number_wins is not None and number_losses is not None:
                 team_id = self.find_team_id(tournament_id, record_team_name)
                 if team_id is not None:
                 #    print(f"Found {team_name} in {team_result}")
@@ -212,9 +224,10 @@ INSERT INTO match_results(
         team_name_results = self.run_sql(self.get_tournament_teams_sql, params).fetchall()
         for team_name_result in team_name_results:
             (potential_team_id, potential_team_name) = team_name_result
+            potential_team_name = re.sub(self.cleanup_re, "", potential_team_name)
             #print(f"Testing team name {potential_team_name} against {record_team_name}")
             try:
-                if re.search(record_team_name, potential_team_name, re.IGNORECASE):
+                if record_team_name.lower().startswith(potential_team_name.lower()):
                     return potential_team_id
             except:
                 pass

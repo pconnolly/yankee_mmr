@@ -111,7 +111,23 @@ class InitDB():
   number_wins INTEGER NOT NULL,
   number_losses INTEGER NOT NULL,
   FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),
-  FOREIGN KEY (team_id) REFERENCES teams(team_id)
+  FOREIGN KEY (team_id) REFERENCES teams(team_id),
+  UNIQUE(team_id)
+);"""
+        self.run_sql(create_pool_results_table)
+
+        ##### Player MMR History Table #####
+        drop_player_mmr_history_table = """DROP TABLE IF EXISTS player_mmr_history;"""
+        self.run_sql(drop_player_mmr_history_table)
+        create_player_mmr_history_table = \
+"""CREATE TABLE player_mmr_history (
+  player_mmr_history_id INTEGER PRIMARY KEY AUTOINCREMENT, 
+  player_id INTEGER NOT NULL,
+  tournament_id INTEGER NOT NULL,
+  mmr DOUBLE NOT NULL,
+  rd  DOUBLE NOT NULL,
+  FOREIGN KEY (tournament_id) REFERENCES tournaments(tournament_id),
+  FOREIGN KEY (player_id) REFERENCES players(player_id)
 );"""
         self.run_sql(create_pool_results_table)
 

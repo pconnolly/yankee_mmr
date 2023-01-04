@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import math
 
 class CalculateRatings():
 
@@ -9,15 +10,17 @@ class CalculateRatings():
 
     default_num_players = 6 
 
-    q = (ln(10) / 400)
+    q = (math.log(10) / 400)
 
-    get_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments WHERE tournament_id = 1 ORDER BY tournament_date, tournament_format, tournament_level, tournament_id"
+    get_tournaments_sql = "SELECT tournament_id, tournament_format, tournament_level, tournament_date FROM tournaments WHERE tournament_id = 2 ORDER BY tournament_date, tournament_format, tournament_level, tournament_id"
 
-    get_tournaments_pools_sql = "SELECT DISTINCT pool_name FROM pool_results WHERE tournament_id = :tournament_id"
+    get_tournament_pools_sql = "SELECT DISTINCT pool_name FROM pool_results WHERE tournament_id = :tournament_id"
 
-    get_tournaments_pool_results_sql = "SELECT team_id, number_wins, number_losses FROM pool_results WHERE tournament_id = :tournament_id AND pool_name = :pool_name"
+    get_tournament_pool_results_sql = "SELECT team_id, number_wins, number_losses FROM pool_results WHERE tournament_id = :tournament_id AND pool_name = :pool_name"
 
-    get_roster_rating_sql = "SELECT r.player_id, pm.mmr_rating, pm.rd FROM rosters r JOIN player_mmr pm ON r.player_id = pm.player_id WHERE team_id = :team_id"
+    get_roster_players_sql = "SELECT player_id FROM rosters WHERE team_id = :team_id"
+
+    get_player_current_rating_sql = "WITH all_player_ratings AS (SELECT pm.mmr, pm.rd, ROW_NUMBER() OVER (ORDER BY tournament_id DESC) AS rnk FROM player_mmr_history pm WHERE player_id = :player_id) SELECT mmr, rd FROM all_player_ratings WHERE rnk = 1"
 
     def run_sql(self, sql, params = {}):
         #print(f"Running sql {sql}")
@@ -25,13 +28,13 @@ class CalculateRatings():
         return cursor_obj.execute(sql, params)
 
     def run(self):
-        print(f"q is {q}")
+        print(f"q is {self.q}")
         self.connection_obj = sqlite3.connect('yankee_mmr.db')
         try:
             tournaments_to_rate = self.run_sql(self.get_tournaments_sql).fetchall()
-            num_tournaments = len(tournaments)
+            num_tournaments = len(tournaments_to_rate)
             i = 0 
-            for tournament in tournaments:
+            for tournament in tournaments_to_rate:
                 (tournament_id, tournament_format, tournament_level, tournament_date) = tournament
                 print(f"Calculating MMR for {tournament_id}: {tournament_format} {tournament_level} {tournament_date}")
                 self.calculate_pool_mmr(tournament)
@@ -46,22 +49,37 @@ class CalculateRatings():
         params = {"tournament_id": tournament_id}
         pools = self.run_sql(self.get_tournament_pools_sql, params).fetchall()
         for pool in pools:
-            pool_name = pools[0]
+            pool_name = pool[0]
             print(f"Rating pool {pool_name} in tournament {tournament_id}")
             params = {"tournament_id": tournament_id, "pool_name": pool_name}
             pool_results = self.run_sql(self.get_tournament_pool_results_sql, params).fetchall()
             pool_ratings = {}
+            number_of_expected_teams = None
             # Go through the pool once to calculate average mmr and rd
             for pool_result in pool_results:
-                team_id = pool_result[0]
-                # We just need a sample of wins and losses to figure out how many teams were played
-                sample_wins = pool_result[1]
-                sample_losses = pool_result[2]
+                (team_id, number_wins, number_losses) = pool_result
+                number_of_expected_opponents = (number_wins + number_losses) / 2
+                print(f"Pool result team id {team_id} with {number_wins} wins and {number_losses} losses")
                 params = {"team_id": team_id}
-                roster_ratings = self.run_sql(self.get_roster_ratings_sql, params).fetchall()
+                team_players = self.run_sql(self.get_roster_players_sql, params).fetchall()
                 sum_of_team_mmr = 0
                 sum_of_team_rd = 0
                 number_of_players = 0
+                for player in team_players:
+                    player_id = team_players[0]
+                    print("Getting ratings for {player_id}")
+                    params = {"player_id": player_id}
+                    player_rating_result = self.run_sql(self.get_player_current_rating_sql, params).fetchall()
+                    (player_mmr, player_rd) = player_rating_result
+                    if player_mmr is None:
+                        print("Using default ratings for {player_id}")
+                        player_mmr = self.default_mmr
+                        player_rd = self.default_rd
+                    else:
+                      print("Found ratings mmr {player_mmr} and rd {player_rd} for {player_id}")
+                     
+                roster_ratings = self.run_sql(self.get_current_roster_ratings_sql, params).fetchall()
+                #TODO Loop through players on the roster here, not current ratings
                 for roster_rating in roster_ratings:
                     player_id = roster_rating[0]
                     player_mmr = roster_rating[1]
@@ -69,11 +87,13 @@ class CalculateRatings():
                     sum_of_team_mmr = sum_of_team_mmr + player_mmr
                     sum_of_team_rd = sum_of_team_rd + player_rd
                     number_of_players = number_of_players + 1
+                    print(f"Adding {player_id} to team {team_id} for a total mmr of {sum_of_team_mmr} and rd {sum_of_team_rd}")
                 pool_ratings[team_id] = (sum_of_team_mmr, sum_of_team_rd, number_of_players)
 
             # Add missing teams with default ratings
-            number_of_expected_teams = (sample_wins + sample_losses) / 2
-            missing_teams = number_of_expected_teams - length(pool_rating)
+            number_found_opponents = len(pool_results) - 1
+            missing_teams = int(number_of_expected_opponents - number_found_opponents)
+            print(f"Missing {missing_teams} teams. Adding default players to {tournament_format} {tournament_level} {tournament_date} for pool {pool_name}")
             for i in range(missing_teams):
                 pool_ratings[-i] = (self.default_mmr * self.default_num_players, self.default_rd * self.default_num_players, self.default_num_players)
 
@@ -90,6 +110,7 @@ class CalculateRatings():
         opponent_sum_mmr = 0
         opponent_sum_rd = 0
         opponent_total_players = 0
+        print(f"Getting opponent average for {team_id} with opponent ratings {pool_ratings}")
         for other_team_id, team_totals in pool_ratings.items():
             if team_id != other_team_id:
                 (sum_of_team_mmr, sum_of_team_rd, number_of_players) = team_totals
