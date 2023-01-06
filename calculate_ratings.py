@@ -66,43 +66,69 @@ class CalculateRatings():
                 sum_of_team_rd = 0
                 number_of_players = 0
                 for player in team_players:
-                    player_id = team_players[0]
-                    print("Getting ratings for {player_id}")
+                    player_id = player[0]
+                    #print(f"Getting ratings for player {player_id}")
                     params = {"player_id": player_id}
-                    player_rating_result = self.run_sql(self.get_player_current_rating_sql, params).fetchall()
-                    (player_mmr, player_rd) = player_rating_result
-                    if player_mmr is None:
-                        print("Using default ratings for {player_id}")
+                    player_rating_result = self.run_sql(self.get_player_current_rating_sql, params).fetchone()
+                    if player_rating_result is not None:
+                        (player_mmr, player_rd) = player_rating_result
+                    else: 
+                        #print(f"Using default ratings for player {player_id}")
                         player_mmr = self.default_mmr
                         player_rd = self.default_rd
-                    else:
-                      print("Found ratings mmr {player_mmr} and rd {player_rd} for {player_id}")
-                     
-                roster_ratings = self.run_sql(self.get_current_roster_ratings_sql, params).fetchall()
-                #TODO Loop through players on the roster here, not current ratings
-                for roster_rating in roster_ratings:
-                    player_id = roster_rating[0]
-                    player_mmr = roster_rating[1]
-                    player_rd = roster_rating[2]
+
                     sum_of_team_mmr = sum_of_team_mmr + player_mmr
                     sum_of_team_rd = sum_of_team_rd + player_rd
                     number_of_players = number_of_players + 1
                     print(f"Adding {player_id} to team {team_id} for a total mmr of {sum_of_team_mmr} and rd {sum_of_team_rd}")
+
                 pool_ratings[team_id] = (sum_of_team_mmr, sum_of_team_rd, number_of_players)
 
             # Add missing teams with default ratings
             number_found_opponents = len(pool_results) - 1
             missing_teams = int(number_of_expected_opponents - number_found_opponents)
-            print(f"Missing {missing_teams} teams. Adding default players to {tournament_format} {tournament_level} {tournament_date} for pool {pool_name}")
+            if missing_teams > 0:
+                print(f"Missing {missing_teams} teams from tournament {tournament_id}. Adding default players to {tournament_format} {tournament_level} {tournament_date} for pool {pool_name}")
             for i in range(missing_teams):
-                pool_ratings[-i] = (self.default_mmr * self.default_num_players, self.default_rd * self.default_num_players, self.default_num_players)
-
-            # Go through the pool a second time to calculate the new MMR
+                pool_ratings[-i] = (self.default_mmr *
+                        self.default_num_players, self.default_rd *
+                        self.default_num_players, self.default_num_players)
+# Go through the pool a second time to calculate the new MMR
             for pool_result in pool_results:
                 team_id = pool_result[0]
                 number_wins = pool_result[1]
                 number_losses = pool_result[2]
                 (opponent_avg_mmr, opponent_avg_rd) = self.get_opponent_avg(team_id, pool_ratings)
+                print(f"Team {team_id} has {number_wins} wins and {number_losses} losses with opponent_avg_mmr of {opponent_avg_mmr} and avg rd of {opponent_avg_rd}")
+                g_rd_j = 1 / (math.sqrt(1 + ((3 * (self.q ** 2) * (opponent_avg_rd ** 2)) / (math.pi ** 2))))
+                print(f"Team {team_id} has G_RDj of {g_rd_j}")
+                params = {"team_id": team_id}
+                team_players = self.run_sql(self.get_roster_players_sql, params).fetchall()
+                for player in team_players:
+                    player_id = player[0]
+                    #print(f"Getting ratings for player {player_id}")
+                    params = {"player_id": player_id}
+                    player_rating_result = self.run_sql(self.get_player_current_rating_sql, params).fetchone()
+                    if player_rating_result is not None:
+                        (player_mmr, player_rd) = player_rating_result
+                    else: 
+                        #print(f"Using default ratings for player {player_id}")
+                        player_mmr = self.default_mmr
+                        player_rd = self.default_rd
+
+                    expected_s_r = 1 / (1 + 10 ** ((-g_rd_j * (player_mmr - opponent_avg_mmr)) / 400))
+                    pool_d2 = ((self.q ** 2) * ((number_wins + number_losses) * (g_rd_j ** 2) * expected_s_r * (1 - expected_s_r))) ** -1
+                    new_mmr_sum = 0
+                    for i in range(number_wins):
+                        new_mmr_sum = new_mmr_sum + (g_rd_j * (1 - expected_s_r)) 
+                        #print(f"Adding win {new_mmr_sum}")
+                    for j in range(number_losses): 
+                        new_mmr_sum = new_mmr_sum + (g_rd_j * (0 - expected_s_r)) 
+                        #print(f"Adding loss {new_mmr_sum}")
+
+                    new_player_mmr = player_mmr + ((self.q / ((1 / (player_rd ** 2)) + (1 / pool_d2))) * new_mmr_sum)
+                    new_player_rd = math.sqrt( ((1 / player_rd**2) + (1 / pool_d2)) ** -1)
+                    print(f"Player {player_id} has current mmr of {player_mmr} and expected_s_r of {expected_s_r} and pool_d2 of {pool_d2}. New MMR: {new_player_mmr} new RD: {new_player_rd}") 
 
                 # do something
 
@@ -110,15 +136,18 @@ class CalculateRatings():
         opponent_sum_mmr = 0
         opponent_sum_rd = 0
         opponent_total_players = 0
-        print(f"Getting opponent average for {team_id} with opponent ratings {pool_ratings}")
+        #print(f"Getting opponent average for {team_id} with opponent ratings {pool_ratings}")
         for other_team_id, team_totals in pool_ratings.items():
+            #print(f"Evaluating opposing team {other_team_id}")
             if team_id != other_team_id:
                 (sum_of_team_mmr, sum_of_team_rd, number_of_players) = team_totals
                 opponent_sum_mmr = opponent_sum_mmr + sum_of_team_mmr
                 opponent_sum_rd = opponent_sum_rd + sum_of_team_rd
-                opponent_total_players = opponent_total_players
+                opponent_total_players = opponent_total_players + number_of_players
+                #print(f"Added opponent totals for to {opponent_sum_mmr} {opponent_sum_rd} {opponent_total_players}")
         avg_mmr = (opponent_sum_mmr / opponent_total_players)
-        avg_rd = (opponent_sum_rd / opponet_total_players)
+        avg_rd = (opponent_sum_rd / opponent_total_players)
+        print(f"Opponent avg mmr {avg_mmr} and rd {avg_rd} for team {team_id}")
         return (avg_mmr, avg_rd)
 
 
