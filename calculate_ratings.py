@@ -1,6 +1,7 @@
 import re
 import sqlite3
 import math
+import glicko2
 
 class CalculateRatings():
 
@@ -98,10 +99,12 @@ class CalculateRatings():
                 team_id = pool_result[0]
                 number_wins = pool_result[1]
                 number_losses = pool_result[2]
+                number_of_matches = number_wins + number_losses
                 (opponent_avg_mmr, opponent_avg_rd) = self.get_opponent_avg(team_id, pool_ratings)
                 print(f"Team {team_id} has {number_wins} wins and {number_losses} losses with opponent_avg_mmr of {opponent_avg_mmr} and avg rd of {opponent_avg_rd}")
-                g_rd_j = 1 / (math.sqrt(1 + ((3 * (self.q ** 2) * (opponent_avg_rd ** 2)) / (math.pi ** 2))))
-                print(f"Team {team_id} has G_RDj of {g_rd_j}")
+
+                #g_rd_j = 1 / (math.sqrt(1 + ((3 * (self.q ** 2) * (opponent_avg_rd ** 2)) / (math.pi ** 2))))
+                #print(f"Team {team_id} has G_RDj of {g_rd_j}")
                 params = {"team_id": team_id}
                 team_players = self.run_sql(self.get_roster_players_sql, params).fetchall()
                 for player in team_players:
@@ -109,28 +112,30 @@ class CalculateRatings():
                     #print(f"Getting ratings for player {player_id}")
                     params = {"player_id": player_id}
                     player_rating_result = self.run_sql(self.get_player_current_rating_sql, params).fetchone()
+                    player = glicko2.Player()
                     if player_rating_result is not None:
                         (player_mmr, player_rd) = player_rating_result
-                    else: 
-                        #print(f"Using default ratings for player {player_id}")
-                        player_mmr = self.default_mmr
-                        player_rd = self.default_rd
+                        player.setRating(player_mmr)
+                        player.setRd(player_rd)
+                    # Else use the default mmr 1500 and rd 350
+                    
+                    opponent_rating_list = []
+                    opponent_rd_list = []
+                    outcome_list = []
+                    for i in range(number_of_matches):
+                        opponent_rating_list.append(opponent_avg_mmr)
+                        opponent_rd_list.append(opponent_avg_rd)
 
-                    expected_s_r = 1 / (1 + 10 ** ((-g_rd_j * (player_mmr - opponent_avg_mmr)) / 400))
-                    pool_d2 = ((self.q ** 2) * ((number_wins + number_losses) * (g_rd_j ** 2) * expected_s_r * (1 - expected_s_r))) ** -1
-                    new_mmr_sum = 0
-                    for i in range(number_wins):
-                        new_mmr_sum = new_mmr_sum + (g_rd_j * (1 - expected_s_r)) 
-                        #print(f"Adding win {new_mmr_sum}")
-                    for j in range(number_losses): 
-                        new_mmr_sum = new_mmr_sum + (g_rd_j * (0 - expected_s_r)) 
-                        #print(f"Adding loss {new_mmr_sum}")
+                    for j in range(number_wins):
+                        outcome_list.append(1)
 
-                    new_player_mmr = player_mmr + ((self.q / ((1 / (player_rd ** 2)) + (1 / pool_d2))) * new_mmr_sum)
-                    new_player_rd = math.sqrt( ((1 / player_rd**2) + (1 / pool_d2)) ** -1)
-                    print(f"Player {player_id} has current mmr of {player_mmr} and expected_s_r of {expected_s_r} and pool_d2 of {pool_d2}. New MMR: {new_player_mmr} new RD: {new_player_rd}") 
+                    for k in range(number_losses):
+                        outcome_list.append(0)
 
-                # do something
+                    #print(f"Player {player_id} rating list {opponent_rating_list} outcome
+                    player.update_player(opponent_rating_list, opponent_rd_list, outcome_list)
+
+                    print(f"Player {player_id} has current mmr of {player_mmr} and RD of {player_rd}. New MMR: {player.rating} new RD: {player.rd}") 
 
     def get_opponent_avg(self, team_id, pool_ratings):
         opponent_sum_mmr = 0
